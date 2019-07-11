@@ -5,29 +5,36 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )"; pwd -P)"
 dlcreate()
 {
   name=$1
-  python $DIR/datalad_brf.py create $name
+  sibling=$2
+  python $DIR/datalad_brf.py create $name $sibling
 }
 
 dlinst()
 {
   url=$1
-  python $DIR/datalad_brf.py install $url
+  name=$2
+  sibling=$3
+  python $DIR/datalad_brf.py install $url $name $sibling
 }
 
 dlinstsubds()
 {
   subdataset=$1
-  python $DIR/datalad_brf.py install_subdatasets
+  sibling=$2
+  python $DIR/datalad_brf.py install_subdatasets $sibling
 }
 
 dlpublish()
 {
-  python $DIR/datalad_brf.py publish
+  path=$1
+  sibling=$2
+  python $DIR/datalad_brf.py publish $path $sibling
 }
 
 dlupdate()
 {
-  python $DIR/datalad_brf.py update
+  sibling=$1
+  python $DIR/datalad_brf.py update $sibling
 }
 
 dlinitgithub()

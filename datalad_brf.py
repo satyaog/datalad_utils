@@ -4,64 +4,101 @@ from os.path import basename, join, splitext
 import sys
 
 from datalad import coreapi
+from datalad.support.exceptions import IncompleteResultsError
 
-def _get_github_reponame(super_dataset_path, name):
-    super_ds = coreapi.Dataset(path=super_dataset_path)
-    reponame = name
+def _get_github_reponame(dataset_path, name=""):
+    dataset = coreapi.Dataset(path=dataset_path)
+    reponame_buffer = [name]
 
-    if super_ds.id:
-        github_sibling = next(iter(super_ds.siblings(name="github")), None)
-        if github_sibling:
-            super_reponame = splitext(basename(github_sibling["url"]))[0]
-            reponame = join(super_reponame, name).rstrip('/').replace('/', '-')
-        elif not reponame:
-            origin_sibling = next(iter(super_ds.siblings(name="origin")), None)
-            reponame = splitext(basename(github_sibling["url"]))[0]
-    else:
-        super_ds = None
+    while dataset.id:
+        reponame_buffer.insert(0, basename(dataset.path))
+        dataset = coreapi.Dataset(path=join(dataset.path, ".."))
 
-    return reponame
+    return '-'.join(reponame_buffer).rstrip('-')
 
-def create(name, sibling="github"):
+def create(name, sibling="origin"):
     super_ds = coreapi.Dataset(path=".")
-    reponame = _get_github_reponame(".", name)
+    coreapi.create(path=name, dataset=super_ds if super_ds.id else None)
 
-    if not super_ds.id:
-        super_ds = None
-    coreapi.create(path=name, dataset=super_ds)
-    init_github(reponame, dataset=name, sibling=sibling)
+    if sibling == "github":
+        reponame = _get_github_reponame(".", name)
+        init_github(reponame, dataset=name, sibling=sibling)
 
-def install(url, sibling="github"):
+def install(url, name=None, sibling="origin"):
     url = url.rstrip('/')
-    super_ds = coreapi.Dataset(path=".")
-    name = splitext(basename(url))[0]
+    if name is None:
+        name = splitext(basename(url))[0]
+
     reponame = _get_github_reponame(".", name)
 
+    if not install_subdatasets_tree(url):
+        coreapi.install(name, source=url)
+
+    if sibling == "github":
+        init_github(reponame, dataset=name, sibling=sibling)
+
+def install_subdatasets_tree(url, sibling="origin"):
+    url = url.rstrip('/')
+    subdatasets_tree = url.split('/')
+
+    super_ds = coreapi.Dataset(path=".")
     subdatasets = [sub_ds["gitmodule_name"] for sub_ds in super_ds.subdatasets()]
-    if url in subdatasets:
-        coreapi.install(path=url)
-    else:
-        coreapi.install(source=url)
+    if next(iter(subdatasets_tree), None) not in subdatasets:
+        return False
 
-    init_github(reponame, dataset=name, sibling=sibling)
+    base_name = subdatasets_tree[0]
+    reponame = _get_github_reponame(".", base_name)
 
-def install_subdatasets(sibling="github"):
+    dataset_path = "."
+    while subdatasets_tree:
+        name = subdatasets_tree.pop(0)
+
+        dataset = coreapi.Dataset(path=dataset_path)
+        subdatasets = [sub_ds["gitmodule_name"] for sub_ds in dataset.subdatasets()]
+        if name not in subdatasets:
+            break
+
+        try:
+            coreapi.install(path=join(dataset_path, name), dataset=dataset,
+                on_failure="stop")
+        except IncompleteResultsError as error:
+            github_sibling = next(iter(dataset.siblings(name="github")), None)
+            if github_sibling:
+                path = join(dataset_path, name)
+                source = '-'.join([splitext(github_sibling["url"])[0], name + ".git"])
+                coreapi.install(path=path, dataset=dataset, source=source)
+                coreapi.siblings("add", dataset=path, name="github", url=source)
+                coreapi.siblings("remove", dataset=path, name="origin")
+            else:
+                raise error
+
+        dataset_path = join(dataset_path, name)
+
+    if sibling == "github":
+        init_github(reponame, dataset=base_name, sibling=sibling)
+
+    return True
+
+def install_subdatasets(sibling="origin"):
     coreapi.install(path=".", recursive=True)
-    reponame = _get_github_reponame(".", "")
-    init_github(reponame, dataset=".", sibling=sibling)
+    reponame = _get_github_reponame(".")
+    if sibling == "github":
+        init_github(reponame, dataset=".", sibling=sibling)
 
-def publish(path="*", sibling="github"):
+def publish(path="*", sibling="origin"):
     coreapi.add(path=glob.glob(path), recursive=True)
     coreapi.save()
     coreapi.publish(to=sibling, recursive=True)
 
-def update(sibling="github"):
+def update(sibling="origin"):
     coreapi.update(sibling=sibling, recursive=True, merge=True)
 
-def init_github(name, login=None, dataset=".", sibling="github"):
+def init_github(name=None, login=None, dataset=".", sibling="github"):
+    if name is None:
+        name = _get_github_reponame(dataset)
     dataset = coreapi.Dataset(path=dataset)
     coreapi.create_sibling_github(name, dataset=dataset, name=sibling,
-        github_login=login, recursive=True, access_protocol="ssh",
+        github_login=login, recursive=False, access_protocol="ssh",
         existing="reconfigure")
     coreapi.siblings(dataset=dataset, name=sibling, publish_by_default="master")
 

@@ -4,7 +4,10 @@ from os.path import basename, join, splitext
 import sys
 
 from datalad import coreapi
+from datalad.config import ConfigManager
 from datalad.support.exceptions import IncompleteResultsError
+
+GITHUB_REPO_PREFIX = "git@github.com"
 
 def _get_github_reponame(dataset_path, name=""):
     dataset = coreapi.Dataset(path=dataset_path)
@@ -88,7 +91,7 @@ def install_subdatasets(sibling="origin"):
 def publish(path="*", sibling="origin"):
     coreapi.add(path=glob.glob(path), recursive=True)
     coreapi.save()
-    coreapi.publish(to=sibling, recursive=True)
+    coreapi.publish(to=sibling, recursive=True, missing="skip")
 
 def update(sibling="origin"):
     coreapi.update(sibling=sibling, recursive=True, merge=True)
@@ -96,11 +99,12 @@ def update(sibling="origin"):
 def init_github(name=None, login=None, dataset=".", sibling="github"):
     if name is None:
         name = _get_github_reponame(dataset)
+    repository = join("{}:{}".format(GITHUB_REPO_PREFIX, login), name) + ".git"
     dataset = coreapi.Dataset(path=dataset)
-    coreapi.create_sibling_github(name, dataset=dataset, name=sibling,
-        github_login=login, recursive=False, access_protocol="ssh",
-        existing="reconfigure")
-    coreapi.siblings(dataset=dataset, name=sibling, publish_by_default="master")
+    coreapi.siblings("configure", dataset=dataset, name=sibling, url=repository,
+                     publish_by_default="master")
+    ConfigManager().set("remote.{}.annex-ignore".format(sibling), "true",
+                        where="local")
 
 if __name__ == "__main__":
     # get the second argument from the command line

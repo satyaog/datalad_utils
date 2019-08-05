@@ -97,14 +97,21 @@ def update(sibling="origin"):
     coreapi.update(sibling=sibling, recursive=True, merge=True)
 
 def init_github(name=None, login=None, dataset=".", sibling="github"):
+    dataset = coreapi.Dataset(path=dataset)
+
     if name is None:
         name = _get_github_reponame(dataset)
+    login_config = dataset.config.get("datalad.github.username")
+    if login is None:
+        login = login_config
+    if login_config is None:
+        dataset.config.set("datalad.github.username", login, where="global")
+
     repository = join("{}:{}".format(GITHUB_REPO_PREFIX, login), name) + ".git"
-    dataset = coreapi.Dataset(path=dataset)
     coreapi.siblings("configure", dataset=dataset, name=sibling, url=repository,
                      publish_by_default="master")
-    ConfigManager().set("remote.{}.annex-ignore".format(sibling), "true",
-                        where="local")
+    dataset.config.set("remote.{}.annex-ignore".format(sibling), "true",
+                       where="local")
 
 if __name__ == "__main__":
     # get the second argument from the command line
